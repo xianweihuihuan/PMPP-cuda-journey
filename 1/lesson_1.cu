@@ -63,10 +63,10 @@ void vecAddSerial(float* A_h, float* B_h, float* C_h, int n) {
 }
 
 int main() {
-  float* A_h = (float*)malloc(100000000 * sizeof(float));
-  float* B_h = (float*)malloc(100000000 * sizeof(float));
-  float* C_h = (float*)malloc(100000000 * sizeof(float));
-  int n = 100000000;
+  float* A_h = (float*)malloc(200000000 * sizeof(float));
+  float* B_h = (float*)malloc(200000000 * sizeof(float));
+  float* C_h = (float*)malloc(200000000 * sizeof(float));
+  int n = 200000000;
   int size = sizeof(float) * n;
 
   for (int i = 0; i < n; i++) {
