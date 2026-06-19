@@ -134,79 +134,86 @@ void matrixmul(float* M_h, float* N_h, float* P_h, int width) {
   cudaFree(P_d);
 }
 
+// 只打印左上角一小块，避免大尺寸下刷屏
+auto printImageCorner = [](const char* title,
+                           const unsigned char* data,
+                           int w,
+                           int count) {
+  std::cout << title << " (top-left " << count << "x" << count << ")\n";
+  for (int row = 0; row < count; ++row) {
+    for (int col = 0; col < count; ++col) {
+      std::cout << static_cast<int>(data[row * w + col]) << " ";
+    }
+    std::cout << "\n";
+  }
+  std::cout << "\n";
+};
+
+auto printMatrixCorner = [](const char* title,
+                            const float* data,
+                            int width,
+                            int count) {
+  std::cout << title << " (top-left " << count << "x" << count << ")\n";
+  for (int row = 0; row < count; ++row) {
+    for (int col = 0; col < count; ++col) {
+      std::cout << data[row * width + col] << " ";
+    }
+    std::cout << "\n";
+  }
+  std::cout << "\n";
+};
+
 int main() {
-  auto printImage = [](const char* title,
-                       const unsigned char* data,
-                       int w,
-                       int h) {
-    std::cout << title << "\n";
-    for (int row = 0; row < h; ++row) {
-      for (int col = 0; col < w; ++col) {
-        std::cout << static_cast<int>(data[row * w + col]) << " ";
-      }
-      std::cout << "\n";
-    }
-    std::cout << "\n";
-  };
+  // ===================== RGB 转灰度 / blur：1920x1080 =====================
+  const int imageWidth = 1920;
+  const int imageHeight = 1080;
+  const int pixels = imageWidth * imageHeight;
 
-  auto printMatrix = [](const char* title, const float* data, int width) {
-    std::cout << title << "\n";
-    for (int row = 0; row < width; ++row) {
-      for (int col = 0; col < width; ++col) {
-        std::cout << data[row * width + col] << " ";
-      }
-      std::cout << "\n";
-    }
-    std::cout << "\n";
-  };
-
-  const int imageWidth = 4;
-  const int imageHeight = 3;
-  unsigned char rgbImage[imageWidth * imageHeight * CHANNLES];
-  unsigned char grayImage[imageWidth * imageHeight] = {0};
+  unsigned char* rgbImage = new unsigned char[pixels * CHANNLES];
+  unsigned char* grayImage = new unsigned char[pixels];
+  unsigned char* blurOutput = new unsigned char[pixels];
 
   for (int row = 0; row < imageHeight; ++row) {
     for (int col = 0; col < imageWidth; ++col) {
       int offset = (row * imageWidth + col) * CHANNLES;
-      rgbImage[offset] = static_cast<unsigned char>(row * 60);
-      rgbImage[offset + 1] = static_cast<unsigned char>(col * 60);
-      rgbImage[offset + 2] = static_cast<unsigned char>(120);
+      rgbImage[offset] = static_cast<unsigned char>((row + col) % 256);
+      rgbImage[offset + 1] = static_cast<unsigned char>((row * 2) % 256);
+      rgbImage[offset + 2] = static_cast<unsigned char>((col * 3) % 256);
     }
   }
 
   colorToGrayscaleConversion(grayImage, rgbImage, imageWidth, imageHeight);
-  printImage("grayscale result:", grayImage, imageWidth, imageHeight);
+  printImageCorner("grayscale result:", grayImage, imageWidth, 4);
 
-  const int blurWidth = 5;
-  const int blurHeight = 5;
-  unsigned char blurInput[blurWidth * blurHeight] = {
-      0, 0, 0, 0, 0,
-      0, 50, 50, 50, 0,
-      0, 50, 255, 50, 0,
-      0, 50, 50, 50, 0,
-      0, 0, 0, 0, 0};
-  unsigned char blurOutput[blurWidth * blurHeight] = {0};
+  // blur 直接复用灰度图作为单通道输入
+  blur(grayImage, blurOutput, imageWidth, imageHeight);
+  printImageCorner("blur result:", blurOutput, imageWidth, 4);
 
-  blur(blurInput, blurOutput, blurWidth, blurHeight);
-  printImage("blur input:", blurInput, blurWidth, blurHeight);
-  printImage("blur result:", blurOutput, blurWidth, blurHeight);
+  // ===================== 矩阵乘法：1024x1024 =====================
+  const int matrixWidth = 1024;
+  const int matrixSize = matrixWidth * matrixWidth;
 
-  const int matrixWidth = 3;
-  float M[matrixWidth * matrixWidth] = {
-      1.0f, 2.0f, 3.0f,
-      4.0f, 5.0f, 6.0f,
-      7.0f, 8.0f, 9.0f};
-  float N[matrixWidth * matrixWidth] = {
-      9.0f, 8.0f, 7.0f,
-      6.0f, 5.0f, 4.0f,
-      3.0f, 2.0f, 1.0f};
-  float P[matrixWidth * matrixWidth] = {0.0f};
+  float* M = new float[matrixSize];
+  float* N = new float[matrixSize];
+  float* P = new float[matrixSize];
+
+  for (int row = 0; row < matrixWidth; ++row) {
+    for (int col = 0; col < matrixWidth; ++col) {
+      M[row * matrixWidth + col] = ((row * 3 + col) % 13) * 0.5f;
+      N[row * matrixWidth + col] = ((row + col * 7) % 11) * 0.25f;
+      P[row * matrixWidth + col] = 0.0f;
+    }
+  }
 
   matrixmul(M, N, P, matrixWidth);
-  printMatrix("matrix M:", M, matrixWidth);
-  printMatrix("matrix N:", N, matrixWidth);
-  printMatrix("matrixmul result:", P, matrixWidth);
+  printMatrixCorner("matrixmul result:", P, matrixWidth, 4);
 
+  delete[] rgbImage;
+  delete[] grayImage;
+  delete[] blurOutput;
+  delete[] M;
+  delete[] N;
+  delete[] P;
   cudaDeviceReset();
   return 0;
 }

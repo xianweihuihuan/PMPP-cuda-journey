@@ -106,11 +106,11 @@ for (int i = 0; i < width / TILE_WIDTH; ++i) {
 
 关键在那行 `★`：**M tile 在 `c` 循环外只加载一次**，却被 4 个不同的 N tile（4 个输出列）复用。对比第五章的非粗化版本——那里每个输出列各自属于不同线程，会把 M tile 各自重读一遍。粗化把这部分 global memory 冗余访问省掉了。
 
-> ⚠️ 一个要核对的地方：写回用的是
+> ✅ 已修复的 bug：写回原本写成 `P[Row * width + ColStart + k * width]`，但 `vals[k]` 是按**列**（`Col = ColStart + k * TILE_WIDTH`）累加出来的，`k * width` 会沿行方向乱写。正确写法是：
 > ```cpp
-> P[Row * width + ColStart + k * width] = vals[k];
+> P[Row * width + ColStart + k * TILE_WIDTH] = vals[k];
 > ```
-> 而 `vals[k]` 是按**列**（`Col = ColStart + k * TILE_WIDTH`）累加出来的，写回却用了 `k * width`（行方向步进）。按 1D 列粗化的意图，这里下标应当是 `ColStart + k * TILE_WIDTH`。建议跑对拍验证一下这个 kernel 的结果（见文末）。
+> 这个 bug 是补了 main + CPU 对拍后才暴露的（见 §6）——印证了「优化 kernel 必须对拍」。
 
 ### 2D 粗化：`matrixMul2DKernel`
 
@@ -123,7 +123,7 @@ float vals[COARSE_FACTOR][COARSE_FACTOR] = {0};                // 4×4 个累加
 
 for (int i = 0; i < width / TILE_WIDTH; ++i) {
   for (int c = 0; c < COARSE_FACTOR; ++c)                      // 先把这一 phase 的 4 个 N tile 都装进来
-    NDs[c][ty][tx] = N[(ty + i*TILE_WIDTH)*width + ColStart + c*TILE_WIDTH + tx];
+    NDs[c][ty][tx] = N[(ty + i*TILE_WIDTH)*width + ColStart + c*TILE_WIDTH];  // 注意 ColStart 已含 +tx
 
   for (int r = 0; r < COARSE_FACTOR; ++r) {
     int Row = RowStart + r * TILE_WIDTH;
@@ -136,6 +136,8 @@ for (int i = 0; i < width / TILE_WIDTH; ++i) {
   }
 }
 ```
+
+> ✅ 已修复的 bug：N tile 加载原本写成 `... + ColStart + c*TILE_WIDTH + tx`，但 `ColStart` 已经含 `+tx`，再加一次会让列号偏移翻倍、读错列。正确写法去掉末尾的 `+ tx`（即上面代码的样子）。这个 bug 同样是 CPU 对拍才发现的（修复前 `2D max error` 高达 2948）。
 
 复用关系：
 
@@ -174,11 +176,22 @@ for (int i = 0; i < width / TILE_WIDTH; ++i) {
 
 ## 6. 验证与编译
 
-矩阵乘法的优化 kernel 很容易写错下标，务必用一个朴素 CPU 版本对拍（沿用第五章的 `matrixMulCpu` / `maxError` 思路）。尤其上面 1D 粗化写回下标存疑，建议补一个 host 主程序跑：
+矩阵乘法的优化 kernel 很容易写错下标，`lesson_5.cu` 已经补上 `main` + 朴素 CPU 对拍（`matrixMulCpu` / `maxError`），用 `width = 128`（必须是 `TILE_WIDTH * COARSE_FACTOR = 64` 的倍数，两个 kernel 都没有边界检查）：
 
 ```bash
-nvcc 5/lesson_5.cu -o /tmp/lesson_5   # 注意：当前文件只有 kernel，需要补 main 才能运行
+nvcc -arch=sm_89 5/lesson_5.cu -o /tmp/lesson_5
+/tmp/lesson_5
 ```
+
+修复两个下标 bug 后的输出：
+
+```text
+width = 128
+1D coarsening max error: 0
+2D coarsening max error: 0
+```
+
+**这一节最大的收获不是粗化本身，而是：两个 bug 单看代码都不明显，是 CPU 对拍把它们逼出来的。优化 kernel 必须对拍。**
 
 ## 7. （6.6）本章小结
 

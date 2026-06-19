@@ -255,14 +255,28 @@ if (ty - r + frow ∈ [0,TILE_DIM) && tx - r + fcol ∈ [0,TILE_DIM)) {
 
 ## 6. 验证与编译
 
-`lesson_6.cu` 目前只有 kernel，要跑起来需要补 host 主程序：用 `cudaMemcpyToSymbol` 给各个 `__constant__` filter 赋值，再写一个朴素 CPU 卷积对拍。注意几个 grid 配置差异：
+`lesson_6.cu` 已经补上 `main`：用 `cudaMemcpyToSymbol` 给三块 `__constant__` filter（`F` / `F_c1` / `F_c2`）赋值，再用朴素 CPU 卷积（`conv1D_cpu` / `conv2D_cpu`）对拍。几个 grid 配置差异要特别小心：
 
-- `convolution_2D_kernel_by_const_shared1`：block = `IN_TILE_DIM`(32)，grid 按 **OUT_TILE_DIM**(28) 划分。
-- `convolution_2D_kernel_by_const_shared`：block = grid 都按 `TILE_DIM`(32) 划分。
+- `convolution_2D_kernel_by_const_shared1`：block = `IN_TILE_DIM`(32)，grid 按 **OUT_TILE_DIM**(28) 划分；且该 kernel 写回**没有** `row<width / col<width` 检查，所以测试用 `width = 112`（28 的倍数）保证精确覆盖、不越界写。
+- `convolution_2D_kernel_by_const_shared`：block / grid 都按 `TILE_DIM`(32) 划分；它有边界检查，任意 width 都行。
+- 1D 用 `width=1000`、`block=256`、`grid=ceil(l/256)`。
 
 ```bash
-nvcc 6/lesson_6.cu -o /tmp/lesson_6   # 需要先补 main + cudaMemcpyToSymbol
+nvcc -arch=sm_89 6/lesson_6.cu -o /tmp/lesson_6
+/tmp/lesson_6
 ```
+
+实测输出（误差都是浮点累加顺序不同导致的 ~1e-7，可视为正确）：
+
+```text
+[1D] length=1000  max error: 5.96046e-08
+[2D] global F     max error: 9.53674e-07
+[2D] const F      max error: 9.53674e-07
+[2D] tiled halo   max error: 9.53674e-07
+[2D] cache halo   max error: 9.53674e-07
+```
+
+5 个 kernel（1 个 1D + 4 个 2D 优化路线）全部与 CPU 一致，第七章的整条优化链至此验证通过。
 
 ## 7. （7.6）本章小结
 

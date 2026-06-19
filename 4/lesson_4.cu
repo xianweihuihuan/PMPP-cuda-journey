@@ -202,18 +202,20 @@ void printTopLeft(const char* title, float* data, int width, int count) {
 }
 
 int main() {
-  const int width = TILE_WIDTH;
+  // width 取 TILE_WIDTH 的倍数；用堆分配避免大尺寸下的栈溢出
+  const int width = 1024;
   const int size = width * width;
-  float M[size];
-  float N[size];
-  float P_cpu[size];
-  float P_static[size];
-  float P_dynamic[size];
+
+  float* M = new float[size];
+  float* N = new float[size];
+  float* P_cpu = new float[size];
+  float* P_static = new float[size];
+  float* P_dynamic = new float[size];
 
   for (int row = 0; row < width; ++row) {
     for (int col = 0; col < width; ++col) {
-      M[row * width + col] = row + col + 1.0f;
-      N[row * width + col] = row == col ? 2.0f : 1.0f;
+      M[row * width + col] = ((row * 3 + col) % 13) * 0.5f;
+      N[row * width + col] = ((row + col * 7) % 11) * 0.25f;
       P_cpu[row * width + col] = 0.0f;
       P_static[row * width + col] = 0.0f;
       P_dynamic[row * width + col] = 0.0f;
@@ -228,11 +230,17 @@ int main() {
   printTopLeft("static shared memory result top-left 4x4:", P_static, width, 4);
   printTopLeft("dynamic shared memory result top-left 4x4:", P_dynamic, width, 4);
 
+  std::cout << "width = " << width << "\n";
   std::cout << "static shared memory max error: "
             << maxError(P_cpu, P_static, width) << "\n";
   std::cout << "dynamic shared memory max error: "
             << maxError(P_cpu, P_dynamic, width) << "\n";
 
+  delete[] M;
+  delete[] N;
+  delete[] P_cpu;
+  delete[] P_static;
+  delete[] P_dynamic;
   cudaDeviceReset();
   return 0;
 }
